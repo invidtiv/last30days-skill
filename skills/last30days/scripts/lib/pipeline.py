@@ -207,7 +207,7 @@ def run(
             available = [source for source in available if source in requested_sources]
     if web_backend == "none":
         available = [s for s in available if s != "grounding"]
-    elif web_backend in ("brave", "exa", "serper") and "grounding" not in available:
+    elif web_backend in ("brave", "exa", "serper", "parallel") and "grounding" not in available:
         available.append("grounding")
     if not available:
         raise RuntimeError("No sources are available for this run.")
