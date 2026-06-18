@@ -64,6 +64,28 @@ class CliV3Tests(unittest.TestCase):
         self.assertIn("ranked_candidates", payload)
         self.assertIn("clusters", payload)
 
+    def test_invalid_plan_json_exits_nonzero(self):
+        """Malformed --plan JSON must fail fast, not silently fall back to the
+        internal planner and burn a paid run the user did not ask for."""
+        result = subprocess.run(
+            [
+                sys.executable,
+                "skills/last30days/scripts/last30days.py",
+                "test topic",
+                "--mock",
+                "--emit=json",
+                "--plan",
+                "{not valid json",
+            ],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+        )
+        self.assertEqual(2, result.returncode, result.stderr)
+        self.assertIn("Invalid --plan JSON", result.stderr)
+
     def test_parse_search_flag_normalizes_aliases_and_dedupes(self):
         self.assertEqual(
             ["grounding", "reddit", "hackernews"],

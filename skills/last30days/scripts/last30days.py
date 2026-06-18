@@ -742,6 +742,10 @@ def main() -> int:
                 external_plan = _json.loads(plan_str)
             except _json.JSONDecodeError as exc:
                 sys.stderr.write(f"[Planner] Invalid --plan JSON: {exc}\n")
+                # Fail fast instead of silently dropping to the internal planner
+                # and burning a paid run the user did not ask for. Mirrors the
+                # --plan file-read branch above and parse_competitors_plan.
+                raise SystemExit(2)
 
         # Auto-resolve: use web search to discover subreddits/handles before planning.
         # This is the engine-side equivalent of SKILL.md Steps 0.55/0.75 for platforms

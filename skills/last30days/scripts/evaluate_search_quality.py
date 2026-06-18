@@ -284,10 +284,17 @@ def get_judgments(
     cache_file.parent.mkdir(parents=True, exist_ok=True)
     if cache_file.exists():
         payload = json.loads(cache_file.read_text())
-        return {row["id"]: int(row["grade"]) for row in payload.get("judgments") or []}
+        # The cache key is the topic slug alone, but judgments are model-
+        # specific. Only reuse the cache when it was produced by the same judge
+        # model; otherwise re-judge, so a --judge-model change cannot return
+        # stale grades that silently skew precision@k / nDCG. Caches written
+        # before judge_model was recorded miss here and get refreshed once.
+        if payload.get("judge_model") == judge_model:
+            return {row["id"]: int(row["grade"]) for row in payload.get("judgments") or []}
     if not gemini_api_key or not items:
         return {}
     payload = call_gemini_judge(gemini_api_key, judge_model, build_judge_prompt(topic, query_type, items))
+    payload["judge_model"] = judge_model
     cache_file.write_text(json.dumps(payload, indent=2))
     return {row["id"]: int(row["grade"]) for row in payload.get("judgments") or []}
 
