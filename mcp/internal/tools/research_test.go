@@ -105,6 +105,18 @@ func TestResearchRunArgsIncludesNoBrowserCookies(t *testing.T) {
 	}
 }
 
+func TestResearchRunArgsSaveUsesSupportedSaveDir(t *testing.T) {
+	args := researchRunArgs("OpenAI", "html", true)
+	got := strings.Join(args, "\x00")
+	if strings.Contains(got, "--save\x00") || strings.HasSuffix(got, "--save") {
+		t.Fatalf("args still include unsupported --save: %#v", args)
+	}
+	want := []string{"OpenAI", "--emit=html", "--no-browser-cookies", "--save-dir", "~/Documents/Last30Days"}
+	if got != strings.Join(want, "\x00") {
+		t.Fatalf("args = %#v, want %#v", args, want)
+	}
+}
+
 func TestResearchHandlerValidationErrorsAreToolErrors(t *testing.T) {
 	// Validation failures are returned as MCP tool errors (not Go errors)
 	// so Claude sees a structured failure with a readable message rather
