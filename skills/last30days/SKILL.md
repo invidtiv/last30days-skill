@@ -222,17 +222,21 @@ End of OUTPUT CONTRACT. The laws above are the contract; everything below is imp
 
 # HOW TO INVOKE THIS SKILL (READ FIRST, FOLLOW EVERY TIME)
 
-**STEP 0 - LOAD WEBSEARCH FIRST.** Your literal first tool call on every `/last30days` invocation MUST be:
+**STEP 0 - RESOLVE HOST WEB SEARCH FIRST.** Your first action on every `/last30days` invocation is to determine whether this agent session has a usable web-search tool. Most agent harnesses do: it may be built in, exposed as a deferred tool, or provided by an installed connector such as Brave, Firecrawl, Exa, Serper, or another search provider.
 
-```
-ToolSearch select:WebSearch
-```
+Use this capability rule:
 
-WebSearch is a **deferred tool** in Claude Code v2.1.114. The frontmatter of this file authorizes it (`allowed-tools: ... WebSearch`) but the runtime lists it as "schemas are NOT loaded." Calling WebSearch without `ToolSearch select:WebSearch` first will fail or do nothing. That friction is the documented cause of the second-most-common failure mode of this skill: the model sees "WebSearch is there but deferred," takes the low-friction path, skips Step 0.5 and 0.55, and runs the engine bare with only keyword search. The output looks fine but misses founder X timelines, GitHub repo activity, and subreddit-specific threads.
+- **If a web-search tool is available:** use it for Step 0.5 / 0.55 pre-research and Step 2 supplements. If your host requires loading, selecting, or enabling the web-search tool before use, do that using the host's mechanism. Do not fail the skill just because one particular schema lookup or tool name is unavailable; use the web-search capability you actually have.
 
-Load WebSearch first. No exceptions. Then run the first-run gate below before anything else.
+- **If no web-search tool is available in the agent session:** skip Step 0.55 and Step 0.75, and add `--auto-resolve` to the engine command. The engine will use configured web backends (`BRAVE_API_KEY`, `EXA_API_KEY`, `SERPER_API_KEY`, `PARALLEL_API_KEY`) or the keyless floor when available.
 
-**FIRST-RUN GATE — run this Bash command immediately after loading WebSearch, before reading the topic or doing any research:**
+When host web search is available, export `LAST30DAYS_NATIVE_SEARCH=1` in the same shell as the engine invocation so the engine does not also run the lower-quality keyless web floor. Leave it unset when the agent session has no web-search tool.
+
+Resolving this correctly prevents the second-most-common failure mode of this skill: the model skips Step 0.5 / 0.55 and runs the engine bare with only keyword search. The output looks fine but misses founder X timelines, GitHub repo activity, subreddit-specific threads, and current first-party positioning.
+
+After resolving host web search, run the first-run gate below before anything else.
+
+**FIRST-RUN GATE — run this Bash command immediately after resolving host web search, before reading the topic or doing any research:**
 
 ```bash
 grep -q "SETUP_COMPLETE=true" ~/.config/last30days/.env 2>/dev/null && echo "1" || echo "FIRST_RUN_DETECTED"
@@ -350,13 +354,13 @@ If the preflight script emits `ERROR: last30days v3 requires Python 3.12+` (or `
 
 WebSearch-only synthesis is not equivalent to running the engine — it misses Reddit community data, X/Twitter timelines, YouTube transcripts, TikTok, and Polymarket. Presenting it without disclosure misleads the user about what was actually searched. This is the same category of failure as a WebSearch-only run with no engine footer.
 
-**Native-search signal (web coverage).** If you (the hosting model) have your own web-search tool available — e.g. Claude Code's `WebSearch`, which STEP 0 loads — export `LAST30DAYS_NATIVE_SEARCH=1` in the same shell before invoking the engine:
+**Native-search signal (web coverage).** If you (the hosting model) have your own web-search tool available, export `LAST30DAYS_NATIVE_SEARCH=1` in the same shell before invoking the engine:
 
 ```bash
 export LAST30DAYS_NATIVE_SEARCH=1   # ONLY when you have a native web-search tool
 ```
 
-Your native search is better than the engine's keyless web fallback, so this tells the engine to skip that fallback and leave general web to you (you already run WebSearch supplements in Step 2). If you have NO native web-search tool (some non-Claude hosts and headless/cron paths), do **not** set this: the engine's keyless web floor supplies general-web coverage automatically. The rule is capability-based, not host-name-based — set it only when you genuinely have a better search, never to suppress the floor on a host that has nothing else.
+Your host search is better than the engine's keyless web fallback, so this tells the engine to skip that fallback and leave general web to you (you already run web-search supplements in Step 2). If you have NO web-search tool in the agent session, do **not** set this: the engine's keyless web floor supplies general-web coverage automatically. The rule is capability-based, not host-name-based — set it only when you genuinely have a better search, never to suppress the floor on a host that has nothing else.
 
 ## Configuration
 
@@ -371,8 +375,9 @@ The engine reads `LAST30DAYS_MEMORY_DIR` from either the process env or `~/.conf
 **You are the conversational driver.** The Python setup script does only mechanical work (cookie reads, tool installs, the GitHub device-auth flow) - it CANNOT prompt the user, because it runs as a non-interactive subprocess. So consent happens HERE, in chat: you ask, the user answers, and you gate each subprocess call on the answer. Do NOT just run `setup` and report the result - that is the silent-onboarding regression this section exists to prevent.
 
 **First-run detection (silent, no commands, no output to user):**
-- If `~/.config/last30days/.env` does NOT exist, this is a first run.
-- If the file exists and contains `SETUP_COMPLETE=true`, skip Step 0 entirely and go to Step 1 (CRITICAL: Parse User Intent below). Do NOT announce that setup is complete. The user does not need a status message on every run.
+- If `SETUP_COMPLETE=true` is available from process env, project config (`.claude/last30days.env`), global config (`~/.config/last30days/.env`), or the setup check reports configured credentials, skip Step 0 entirely and go to Step 1 (CRITICAL: Parse User Intent below). Do NOT announce that setup is complete. The user does not need a status message on every run.
+- Do NOT treat the absence of `~/.config/last30days/.env` alone as a first run. Credentials may live in process env, project config, macOS Keychain (`last30days-<KEY>`), pass(1), or host-provided auth.
+- If no setup marker or credential source is present, this is a first run.
 
 **Named onboarding contracts:**
 - *(2026-06-22, silent-wizard regression - Fredy Montero run):* a prior version said "Run `setup` ... follow the wizard's prompts end-to-end." But `run_auto_setup()` has NO prompts - it extracts cookies, installs yt-dlp + Digg, and writes `SETUP_COMPLETE` with zero interaction. The model ran the silent path, never asked cookie consent, never surfaced the macOS Full Disk Access fix, and never offered the ScrapeCreators signup. Consent must be conversational.
@@ -583,6 +588,8 @@ SKILL_DIR="<absolute path of the directory containing the SKILL.md you just Read
 - If EXCLUDE_SOURCES is set (comma-separated, case-insensitive): drop any matching source from ACTIVE_SOURCES_LIST before displaying
 
 **Perplexity source:** use it only when the user asks for Perplexity, Deep Research, or paid grounded synthesis, or when `perplexity` is already enabled in `INCLUDE_SOURCES` / `--search`. Direct `PERPLEXITY_API_KEY` supports Sonar synthesis, Search API rows, and async Deep Research. `OPENROUTER_API_KEY` is only a Sonar fallback. Normal runs default to `LAST30DAYS_PERPLEXITY_MODE=sonar`; use `search` for raw ranked web rows, `both` for synthesis plus rows, and `--deep-research` for `sonar-deep-research` with a 600s default wall timeout. A local Deep Research timeout is not a failed API key; inspect the raw artifact's async request id/status and resume by id if needed.
+
+**Reddit backend pin:** Reddit defaults to the free public backend with ScrapeCreators as a backup when `SCRAPECREATORS_API_KEY` is available. If the user says public Reddit is shallow, bot-gated, or missing nested comments, tell them they can set `LAST30DAYS_REDDIT_BACKEND=scrapecreators` alongside `SCRAPECREATORS_API_KEY` to make ScrapeCreators primary and keep public Reddit as fallback. Do not set this automatically for normal runs.
 
 
 Then display (use "and more" if 5+ sources, otherwise list all with Oxford comma):
@@ -845,8 +852,9 @@ When the user asks "X vs Y" (or "X vs Y vs Z"), the engine fans out N full `pipe
 **MANDATORY per-entity resolution.** For each entity, resolve the full Step 0.55 stack (X handle, subreddits, GitHub user/repos, news context). Then assemble a `--competitors-plan` JSON mapping each entity to its targeting, and invoke the engine ONCE with the vs-topic string.
 
 **Output shape per run:**
-- Main topic saves to `{main-slug}-raw.md`.
-- Each peer saves to `{peer-slug}-raw.md`.
+- For `--emit=compact` / `--emit=md`, there is no separate merged Markdown raw file. The main topic saves to `{main-slug}-raw.md`; each peer saves to `{peer-slug}-raw.md`.
+- For `--emit=html`, the main saved artifact is the merged comparison HTML at `{main-slug}-vs-{peer-slug}-raw-html[...].html`; each peer may also save its own per-entity HTML artifact.
+- The engine logs every written file as `[last30days] Saved output to {path}` and, for comparison runs, follows with `[last30days] Comparison artifact set: main={path}; peers={path, ...}`. Treat that log line as authoritative instead of recomputing paths from slugs.
 - Stdout shows a merged comparison with the `## Head-to-Head` scaffold + per-entity Resolved Entities block.
 
 **Invocation:**
@@ -931,7 +939,7 @@ Topic A (the main topic, first in the vs-string) uses outer `--x-handle`, `--x-r
 
 **Engine-internal auto-resolve (headless fallback):** if the engine detects BRAVE_API_KEY / EXA_API_KEY / SERPER_API_KEY / PARALLEL_API_KEY / PERPLEXITY_API_KEY / OPENROUTER_API_KEY, it runs its own per-entity `resolve.auto_resolve()` before each sub-run. The hosting-model path does NOT need those keys — you are the WebSearch. The engine's auto-resolve is the cron/CI fallback for when no reasoning model is driving.
 
-**Output:** one `{slug}-raw.md` per entity in `--save-dir` plus the merged comparison on stdout. Synthesis contract identical to the vs-mode protocol above.
+**Output:** for Markdown/compact runs, one `{slug}-raw.md` per entity in `--save-dir` plus the merged comparison on stdout. For HTML runs, the main saved artifact is merged comparison HTML and peer artifacts remain per-entity. Always use the `[last30days] Comparison artifact set: main=...; peers=...` log line as the source of truth. Synthesis contract identical to the vs-mode protocol above.
 
 ### Hiring Signals mode (`--hiring-signals`)
 
@@ -1329,7 +1337,9 @@ For ALL query types:
 
 **Instructions:**
 1. Read the saved raw file. Locate it via the engine's `[last30days] Saved output to {path}` log line, not a hardcoded path.
-2. Append a `## WebSearch Supplemental Results` section at the end.
+   - **Single-topic runs:** append to the one Markdown raw file shown by the saved-output log.
+   - **Comparison runs:** locate the `[last30days] Comparison artifact set: main=...; peers=...` line. For compact/Markdown runs, append the same `## WebSearch Supplemental Results` section to every listed per-entity Markdown raw file, because the comparison synthesis draws from all of them and there is no separate merged Markdown raw file. For HTML/JSON-only artifacts, do not append Markdown text to `.html` or `.json`; keep the appendix in the Markdown raw artifacts from the source run.
+2. Append a `## WebSearch Supplemental Results` section at the end of each target Markdown raw file.
 3. For each WebSearch result, include one bullet in the canonical format (see Format example below).
 4. Write the updated file back.
 
@@ -1842,10 +1852,10 @@ Close with `I have all the links to the {N} {source list} I pulled from. Just as
 
 ## SHAREABLE HTML BRIEF (when the user asked for one)
 
-**This section fires if EITHER trigger is true:**
+**This section fires if EITHER prompt-level trigger is true:**
 
-- `$ARGUMENTS` contains `--emit=html`, `--emit:html`, or `--html` as a flag
-- The user's natural-language request asks for an HTML brief, shareable doc, or file for sharing (Slack, email, Notion, "export as HTML", etc). Use your judgment for phrasing variants.
+- The user included an HTML-looking argument such as `--emit=html`, `--emit:html`, or `--html` in the skill prompt. Treat this as a strong user intent signal for HTML; do not confuse it with the complete Python CLI contract.
+- The user's natural-language request asks for an HTML brief, shareable doc, or file for sharing (Slack, email, Notion, "give it to me in HTML", "export as HTML", etc). Use your judgment for phrasing variants; a literal flag is not required.
 
 **If neither trigger fires, skip this entire section and proceed to WAIT FOR USER'S RESPONSE.** No HTML save flow, no reference read needed.
 
@@ -1853,7 +1863,7 @@ Close with `I have all the links to the {N} {source list} I pulled from. Just as
 
 - Read `references/save-html-brief.md` BEFORE proceeding to WAIT FOR USER'S RESPONSE
 - Follow that file's instructions exactly - it is the canonical source for the save flow
-- Append the confirmation line (`📎 Shareable brief saved to <path>`) to your already-emitted chat response
+- End with the artifact handoff defined there: saved HTML path, open the local file when the host can do so, and a concise confirmation for requests where HTML is the requested deliverable
 
 **You MUST NOT:**
 
@@ -1862,6 +1872,7 @@ Close with `I have all the links to the {N} {source list} I pulled from. Just as
 - Save to a different path than the reference specifies
 - Add data quality warnings, debug headers, or safety notes to the saved HTML
 - Re-research the topic for the HTML render - the engine cache covers the second invocation
+- Upload or publish the HTML anywhere public in this flow
 
 **Why the directive is forceful:** the reference file is the only source of truth for the save flow. Skipping it produces broken artifacts - wrong path conventions, missing synthesis content, leaked engine debug output, or warnings that don't belong in shareable docs.
 

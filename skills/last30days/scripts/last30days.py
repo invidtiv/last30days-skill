@@ -767,6 +767,7 @@ def _render_save_and_print(
             rendered_content=rendered if is_comparison_html else None,
         )
         sys.stderr.write(f"[last30days] Saved output to {save_path}\n")
+        comparison_peer_paths: list[Path] = []
         # Competitor / vs-mode: also save a per-entity raw file for each peer.
         # Matches historical vs-mode behavior (N passes -> N save files).
         if entity_reports and len(entity_reports) > 1:
@@ -776,7 +777,13 @@ def _render_save_and_print(
                     suffix=args.save_suffix or "",
                     synthesis_md=synthesis_md,
                 )
+                comparison_peer_paths.append(peer_path)
                 sys.stderr.write(f"[last30days] Saved output to {peer_path}\n")
+            peers_display = ", ".join(str(path) for path in comparison_peer_paths)
+            sys.stderr.write(
+                f"[last30days] Comparison artifact set: main={save_path}; "
+                f"peers={peers_display}\n"
+            )
         sys.stderr.flush()
     print(rendered)
     return 0
@@ -999,6 +1006,10 @@ def main() -> int:
                 external_plan = _json.loads(plan_str)
             except _json.JSONDecodeError as exc:
                 sys.stderr.write(f"[Planner] Invalid --plan JSON: {exc}\n")
+                # Fail fast instead of silently dropping to the internal planner
+                # and burning a paid run the user did not ask for. Mirrors the
+                # --plan file-read branch above and parse_competitors_plan.
+                raise SystemExit(2)
 
         # Auto-resolve: use web search to discover subreddits/handles before planning.
         # This is the engine-side equivalent of SKILL.md Steps 0.55/0.75 for platforms

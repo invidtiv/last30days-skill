@@ -1201,7 +1201,51 @@ def _retrieve_stream(
         # Use raw_topic so expand_reddit_queries() generates diverse variants
         # from the original user topic, not the planner's narrowed search_query.
         reddit_query = raw_topic or subquery.search_query
-        # Public Reddit first (free, gets comments); SC as backup
+        has_sc_key = bool(config.get("SCRAPECREATORS_API_KEY"))
+        sc_first = (
+            has_sc_key
+            and (config.get("LAST30DAYS_REDDIT_BACKEND") or "").lower()
+            == "scrapecreators"
+        )
+        if sc_first:
+            # LAST30DAYS_REDDIT_BACKEND=scrapecreators: SC primary, public fallback
+            try:
+                result = reddit.search_and_enrich(
+                    reddit_query, from_date, to_date, depth=depth,
+                    token=config.get("SCRAPECREATORS_API_KEY"),
+                    subreddits=subreddits,
+                )
+                items = reddit.parse_reddit_response(result)
+                if items:
+                    return items, {}
+                sys.stderr.write(
+                    "[Reddit] ScrapeCreators primary returned no items, "
+                    "using public fallback\n"
+                )
+            except Exception as exc:
+                sys.stderr.write(
+                    f"[Reddit] ScrapeCreators primary failed "
+                    f"({type(exc).__name__}: {exc}), using public fallback\n"
+                )
+            try:
+                public_results = reddit_public.search_reddit_public(
+                    reddit_query, from_date, to_date, depth=depth,
+                    subreddits=subreddits,
+                )
+                if public_results:
+                    return public_results, {}
+                sys.stderr.write(
+                    "[Reddit] Public fallback returned no items after "
+                    "ScrapeCreators primary miss\n"
+                )
+            except Exception as exc:
+                sys.stderr.write(
+                    f"[Reddit] Public fallback also failed "
+                    f"({type(exc).__name__}: {exc})\n"
+                )
+            return [], {}
+
+        # Default: public Reddit first (free, gets comments); SC as backup
         try:
             public_results = reddit_public.search_reddit_public(
                 reddit_query, from_date, to_date, depth=depth,
@@ -1213,18 +1257,14 @@ def _retrieve_stream(
             sys.stderr.write(
                 f"[Reddit] Public search failed ({type(exc).__name__}: {exc})"
             )
-            if not config.get("SCRAPECREATORS_API_KEY"):
+            if not has_sc_key:
                 sys.stderr.write("\n")
                 return [], {}
             sys.stderr.write(", using ScrapeCreators backup\n")
-        # Fallback to ScrapeCreators if public returned empty or raised
-        if config.get("SCRAPECREATORS_API_KEY"):
+        if has_sc_key:
             try:
                 result = reddit.search_and_enrich(
-                    reddit_query,
-                    from_date,
-                    to_date,
-                    depth=depth,
+                    reddit_query, from_date, to_date, depth=depth,
                     token=config.get("SCRAPECREATORS_API_KEY"),
                     subreddits=subreddits,
                 )
