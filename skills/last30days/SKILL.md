@@ -584,6 +584,8 @@ SKILL_DIR="<absolute path of the directory containing the SKILL.md you just Read
 
 **Perplexity source:** use it only when the user asks for Perplexity, Deep Research, or paid grounded synthesis, or when `perplexity` is already enabled in `INCLUDE_SOURCES` / `--search`. Direct `PERPLEXITY_API_KEY` supports Sonar synthesis, Search API rows, and async Deep Research. `OPENROUTER_API_KEY` is only a Sonar fallback. Normal runs default to `LAST30DAYS_PERPLEXITY_MODE=sonar`; use `search` for raw ranked web rows, `both` for synthesis plus rows, and `--deep-research` for `sonar-deep-research` with a 600s default wall timeout. A local Deep Research timeout is not a failed API key; inspect the raw artifact's async request id/status and resume by id if needed.
 
+**Reddit backend pin:** Reddit defaults to the free public backend with ScrapeCreators as a backup when `SCRAPECREATORS_API_KEY` is available. If the user says public Reddit is shallow, bot-gated, or missing nested comments, tell them they can set `LAST30DAYS_REDDIT_BACKEND=scrapecreators` alongside `SCRAPECREATORS_API_KEY` to make ScrapeCreators primary and keep public Reddit as fallback. Do not set this automatically for normal runs.
+
 
 Then display (use "and more" if 5+ sources, otherwise list all with Oxford comma):
 

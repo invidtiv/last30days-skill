@@ -28,6 +28,14 @@ def test_configuration_documents_new_safety_flags():
     assert "--output" in text
 
 
+def test_reddit_backend_env_var_is_documented_for_users_and_runtime_skill():
+    config_text = CONFIGURATION.read_text(encoding="utf-8")
+    skill_text = SKILL_MD.read_text(encoding="utf-8")
+
+    assert "LAST30DAYS_REDDIT_BACKEND=scrapecreators" in config_text
+    assert "LAST30DAYS_REDDIT_BACKEND=scrapecreators" in skill_text
+
+
 def test_save_is_not_documented_as_python_cli_flag():
     text = CONFIGURATION.read_text(encoding="utf-8")
     assert "--save-dir <path>" in text

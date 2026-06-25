@@ -82,7 +82,7 @@ The project-scoped file is useful for **intentional per-client setups**: drop a 
 
 | Source | Key(s) | Required for | Free tier |
 |---|---|---|---|
-| Reddit (public) | none | always on | yes |
+| Reddit (public) | none (default); `SCRAPECREATORS_API_KEY` + `LAST30DAYS_REDDIT_BACKEND=scrapecreators` to pin SC primary with public fallback | always on; SC pin requires `SCRAPECREATORS_API_KEY` | yes |
 | Hacker News | none | always on | yes |
 | Polymarket | none | always on | yes |
 | GitHub | `gh` CLI installed (uses your GitHub auth) | always on if `gh` present | yes |
