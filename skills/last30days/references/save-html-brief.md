@@ -72,6 +72,34 @@ fi
 echo "📎 Shareable brief saved to $HTML_PATH"
 ```
 
+## Optional hosted publishing
+
+Only publish when the user explicitly asks for a hosted/shareable web link or confirms they want one after you offer it. Local HTML save remains the default.
+
+Before publishing, tell the user:
+
+- `ht-ml.app` publishes a public URL by default, and public pages may be crawled or indexed.
+- A shared password can be set with `--publish-password`; use a unique non-personal password, not the user's real password.
+- The local HTML file is still saved first. If upload fails, the local file remains usable.
+
+Then ask whether they want password protection before uploading. Accept either branch:
+
+- **Public link** - proceed with `--publish-html` only.
+- **Password-protected link** - ask them to provide the shared password, then add `--publish-password "$PUBLISH_PASSWORD"`.
+
+When the user opts in and answers the password-protection prompt, add `--publish-html` to the same `--emit=html` command. Add `--publish-password "$PUBLISH_PASSWORD"` only on the password-protected branch.
+
+```bash
+"${LAST30DAYS_PYTHON}" "${SKILL_ROOT}/scripts/last30days.py" "${TOPIC}" \
+  --emit=html \
+  --synthesis-file "$SYNTHESIS_FILE" \
+  --publish-html \
+  "${SCOPE_FLAGS[@]}" \
+  >| "$HTML_PATH"
+```
+
+The hosted URL appears on stderr as `[last30days] Published HTML to https://...`. Append a second concise line to the chat response: `🌐 Hosted brief: <url>`. The provider may return an `update_key`; treat it as secret. The engine deliberately does not write the update key to stdout, the HTML artifact, or `.publish.json` companion metadata.
+
 ## What ends up in the HTML file
 
 The engine's `--emit=html` renderer combines:
@@ -101,6 +129,8 @@ If the user runs `/last30days OpenClaw` normally, sees the synthesis in chat, an
 - Do NOT silently overwrite an existing file. The `--emit=html` output is written via a shell redirect (`>| "$HTML_PATH"`), which OVERWRITES the collision-guarded path — use `>|` not `>` because `set -o noclobber` refuses plain `>` when the file already exists. The collision guard in step 2 handles same-topic re-runs: if `{slug}-brief.html` already exists it date-suffixes to `{slug}-brief-YYYY-MM-DD.html`. Always print whichever path the redirect actually used.
 
 - Do NOT include the data quality warning text in the temp file or in your final chat line. Warnings are an engine-stderr concern, not an artifact concern.
+- Do NOT publish to `ht-ml.app` merely because HTML was requested. Hosted publishing is a separate opt-in step.
+- Do NOT paste or store the `update_key` in chat, Markdown, HTML, raw output, or companion metadata.
 
 ## Edge cases
 
