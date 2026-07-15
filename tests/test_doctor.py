@@ -875,6 +875,67 @@ class FourStateAudit(unittest.TestCase):
         self.assertIn("13 items last run", text)
 
 
+class Postmortem(unittest.TestCase):
+    """U4: --postmortem reads the last run's per-source outcomes."""
+
+    def _pm(self, source_status, fresh=True):
+        tmp = tempfile.mkdtemp()
+        path = _write_last_report(tmp, source_status=source_status, fresh=fresh)
+        with _Hermetic(), mock.patch(
+            "lib.doctor._last_report_path", return_value=path
+        ):
+            return doctor.build_postmortem({})
+
+    def test_failed_partial_succeeded_grouping(self):
+        pm = self._pm(
+            {
+                "youtube": {
+                    "state": "error",
+                    "items_returned": 0,
+                    "detail": "HTTP 500",
+                    "fix_hint": "retry later",
+                },
+                "instagram": {
+                    "state": "partial",
+                    "items_returned": 8,
+                    "detail": "HTTP 400",
+                },
+                "reddit": {"state": "ok", "items_returned": 13},
+            }
+        )
+        text = doctor.render_postmortem_text(pm)
+        self.assertIn("Failed:", text)
+        self.assertIn("HTTP 500", text)
+        self.assertIn("retry later", text)
+        self.assertIn("Partial:", text)
+        self.assertIn("instagram", text)
+        self.assertIn("Succeeded:", text)
+        self.assertIn("reddit (13)", text)
+
+    def test_empty_state(self):
+        with _Hermetic():  # _last_report_path -> None
+            pm = doctor.build_postmortem({})
+        self.assertFalse(pm["present"])
+        self.assertIn("No saved run found", doctor.render_postmortem_text(pm))
+
+    def test_json_mode_shape(self):
+        pm = self._pm({"youtube": {"state": "error", "items_returned": 0}})
+        self.assertEqual("postmortem", pm["mode"])
+        self.assertIn("youtube", pm["outcomes"])
+
+    def test_reads_stale_run_by_age(self):
+        pm = self._pm(
+            {"youtube": {"state": "timeout", "items_returned": 0}}, fresh=False
+        )
+        self.assertTrue(pm["present"])
+        self.assertIn("youtube", pm["outcomes"])
+
+    def test_cli_dispatch_exits_zero(self):
+        rc, out = _run_cli_doctor(["doctor", "--postmortem"], {})
+        self.assertEqual(0, rc)
+        self.assertIn("post-mortem", out)
+
+
 class BackupAndCommentLanes(unittest.TestCase):
     """U7: backup + comment sub-lanes render on their parent source."""
 

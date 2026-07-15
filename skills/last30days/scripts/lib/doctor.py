@@ -1168,6 +1168,108 @@ def render_text(report: Dict[str, Any]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Post-mortem (U4 / R5): what actually happened on the last run
+#
+# Unlike plain doctor (config prediction), --postmortem reads the last run's
+# per-source SourceOutcome and reports what broke, at any age (labeled). It is
+# a reader of the same last-report.json the overlay uses - no new persistence.
+# ---------------------------------------------------------------------------
+
+def _age_label(iso: Any) -> str:
+    if not iso:
+        return ""
+    try:
+        ts = datetime.datetime.fromisoformat(iso)
+    except (TypeError, ValueError):
+        return ""
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=datetime.timezone.utc)
+    secs = int(
+        (datetime.datetime.now(datetime.timezone.utc) - ts).total_seconds()
+    )
+    if secs < 0:
+        return ""
+    if secs < 3600:
+        return f"{secs // 60}m ago"
+    if secs < 86400:
+        return f"{secs // 3600}h ago"
+    return f"{secs // 86400}d ago"
+
+
+def build_postmortem(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Assemble the last run's per-source outcomes (any age) for --postmortem."""
+    evidence = load_run_evidence(config)
+    return {
+        "engine_version": _engine_version(),
+        "mode": "postmortem",
+        "present": evidence["present"],
+        "topic": evidence["topic"],
+        "at": evidence["at"],
+        "outcomes": evidence["outcomes"],
+    }
+
+
+def render_postmortem_text(pm: Dict[str, Any]) -> str:
+    lines = [f"last30days post-mortem — engine v{pm['engine_version']}"]
+    if not pm.get("present"):
+        lines.append("")
+        lines.append(
+            "No saved run found - run `/last30days <topic>` first, or "
+            "`doctor --probe` for a live check."
+        )
+        return "\n".join(lines) + "\n"
+    topic = pm.get("topic") or "last run"
+    age = _age_label(pm.get("at"))
+    lines.append(f"last run: {topic}" + (f" ({age})" if age else ""))
+
+    failed, partial, succeeded, skipped = [], [], [], []
+    for source, outcome in (pm.get("outcomes") or {}).items():
+        state = outcome.get("state")
+        if state in _RUN_WORKING_STATES:
+            succeeded.append((source, outcome))
+        elif state == health.PARTIAL:
+            partial.append((source, outcome))
+        elif state == health.SKIPPED_UNCONFIGURED:
+            skipped.append((source, outcome))
+        else:
+            failed.append((source, outcome))
+
+    if failed:
+        lines.append("")
+        lines.append("Failed:")
+        for source, outcome in failed:
+            detail = outcome.get("detail") or outcome.get("state")
+            lines.append(f"  ✕ {source} — {outcome.get('state')}: {detail}")
+            if outcome.get("fix_hint"):
+                lines.append(f"    fix: {outcome['fix_hint']}")
+    if partial:
+        lines.append("")
+        lines.append("Partial:")
+        for source, outcome in partial:
+            count = outcome.get("items_returned") or 0
+            detail = outcome.get("detail")
+            tail = f" — {detail}" if detail else ""
+            lines.append(f"  ⚠ {source} ({count} items){tail}")
+            if outcome.get("fix_hint"):
+                lines.append(f"    fix: {outcome['fix_hint']}")
+    if succeeded:
+        lines.append("")
+        names = ", ".join(
+            f"{s} ({o.get('items_returned') or 0})" for s, o in succeeded
+        )
+        lines.append(f"Succeeded: {names}")
+    if skipped:
+        lines.append("")
+        lines.append(
+            "Skipped (not configured): " + ", ".join(s for s, _ in skipped)
+        )
+    if not failed and not partial:
+        lines.append("")
+        lines.append("No failures on the last run.")
+    return "\n".join(lines) + "\n"
+
+
+# ---------------------------------------------------------------------------
 # Cross-invocation cache (U5 / R5, KTD 8)
 #
 # Doctor writes its JSON result beside the existing ``last-run.json``
@@ -1354,16 +1456,35 @@ def _write_cache(report: Dict[str, Any], config: Dict[str, Any]) -> bool:
         return False
 
 
-def run(config: Dict[str, Any], *, emit_json: bool = False, cached: bool = False) -> int:
+def run(
+    config: Dict[str, Any],
+    *,
+    emit_json: bool = False,
+    cached: bool = False,
+    postmortem: bool = False,
+    probe: bool = False,
+) -> int:
     """Build (or serve the cached) doctor report and print it. Always exits 0
     (reporting problems is a successful run).
 
+    ``postmortem=True`` reads the last run's per-source outcomes (any age) and
+    reports what broke, instead of predicting config health.
+    ``probe=True`` (or no fresh run) runs a bounded live probe (U5) so WORKING
+    is verified, not guessed.
     ``cached=True`` serves the stored report within the TTL; stale, absent,
     corrupt, schema-mismatched, or fingerprint-mismatched caches fall
     through to a live run that rewrites the cache — as does ANY exception
     raised while serving the cache (never-crash contract, KTD 8).
     ``cached=False`` (explicit ``doctor``) always runs live and refreshes.
     """
+    if postmortem:
+        pm = build_postmortem(config)
+        if emit_json:
+            print(json.dumps(pm, indent=2, sort_keys=True))
+        else:
+            print(render_postmortem_text(pm), end="")
+        return 0
+
     def _emit(report: Dict[str, Any]) -> None:
         if emit_json:
             # generated_at/from_cache ride the report dict, so they appear
